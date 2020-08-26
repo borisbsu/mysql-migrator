@@ -229,7 +229,7 @@ public abstract class Database implements AutoCloseable {
   }
 
   void truncateTable(String tableName) throws SQLException {
-    String truncateTableSql = String.format("truncate table %s", tableName);
+    String truncateTableSql = String.format("truncate table %s cascade", tableName);
     executeUpdate(truncateTableSql);
   }
 

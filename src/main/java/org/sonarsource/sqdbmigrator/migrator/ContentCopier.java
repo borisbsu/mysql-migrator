@@ -27,6 +27,7 @@ import java.sql.Statement;
 import java.sql.Types;
 import java.util.Date;
 import java.util.List;
+import java.util.stream.Collectors;
 import java.util.stream.IntStream;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -37,6 +38,19 @@ public class ContentCopier {
   private static final Logger LOG = LoggerFactory.getLogger(ContentCopier.class);
 
   private static final int DEFAULT_BATCH_SIZE = 5000;
+  private static final String CODESCAN_TABLE_PREFIX = "cs_";
+  private static final String CODESCAN_ENCCONFIG_COLUMN = "encconfig";
+
+  private ConnectionConfig sourceConfig;
+  private ConnectionConfig targetConfig;
+
+  public ContentCopier() {
+  }
+
+  public ContentCopier(ConnectionConfig sourceConfig, ConnectionConfig targetConfig) {
+    this.sourceConfig = sourceConfig;
+    this.targetConfig = targetConfig;
+  }
 
   void execute(Database source, Database target, TableListProvider tableListProvider, StatsRecorder statsRecorder) {
     execute(source, target, tableListProvider, statsRecorder, DEFAULT_BATCH_SIZE);
@@ -51,7 +65,7 @@ public class ContentCopier {
 
         target.truncateTable(tableName);
 
-        boolean tableHasIdColumn = source.tableHasIdColumn(tableName);
+        boolean tableHasIdColumn = !tableName.startsWith(CODESCAN_TABLE_PREFIX) && source.tableHasIdColumn(tableName);
 
         if (tableHasIdColumn) {
           target.setIdentityInsert(tableName, true);
@@ -73,21 +87,29 @@ public class ContentCopier {
     });
   }
 
-  private static void copyTable(Database source, Database target, String tableName, int batchSize) throws SQLException {
-    List<String> columnNames = source.getColumnNames(tableName);
+  private void copyTable(Database source, Database target, String tableName, int batchSize) throws SQLException {
+    List<String> columnNames = source.getColumnNames(tableName).stream().map(String::toLowerCase).collect(Collectors.toList());
+
+    String columnNamesSelect = columnNames.stream().map(col -> {
+      if (tableName.startsWith(CODESCAN_TABLE_PREFIX) && col.equalsIgnoreCase(CODESCAN_ENCCONFIG_COLUMN)
+              && ContentCopier.this.sourceConfig != null) {
+        return "AES_DECRYPT(" + col + ", '" + ContentCopier.this.sourceConfig.encKey + "')";
+      }
+      return col;
+    }).collect(Collectors.joining(","));
+    String selectSql = String.format("select %s from %s", columnNamesSelect, tableName);
+
+    int encConfigPos = tableName.startsWith(CODESCAN_TABLE_PREFIX) ? columnNames.indexOf(CODESCAN_ENCCONFIG_COLUMN) : -1;
+    int columnCount = columnNames.size();
     String columnNamesCsv = String.join(", ", columnNames);
-    String selectSql = String.format("select %s from %s", columnNamesCsv, tableName);
+    String insertSql = String.format("insert into %s (%s) values (%s)", tableName, columnNamesCsv, formatPlaceholders(columnCount, encConfigPos));
 
     try (Statement statement = createStatement(source);
          ResultSet rs = statement.executeQuery(selectSql)) {
-
-      int columnCount = columnNames.size();
-
-      String insertSql = String.format("insert into %s (%s) values (%s)", tableName, columnNamesCsv, formatPlaceholders(columnCount));
       int count = 0;
       try (PreparedStatement insertStatement = target.getConnection().prepareStatement(insertSql)) {
         while (rs.next()) {
-          copyColumns(rs, insertStatement);
+          copyColumns(rs, insertStatement, encConfigPos);
           insertStatement.addBatch();
 
           count++;
@@ -112,23 +134,49 @@ public class ContentCopier {
     return statement;
   }
 
-  private static void copyColumns(ResultSet rs, PreparedStatement insertStatement) throws SQLException {
+  private void copyColumns(ResultSet rs, PreparedStatement insertStatement, int encConfigPos) throws SQLException {
     ResultSetMetaData rsMetaData = rs.getMetaData();
     int columnCount = rsMetaData.getColumnCount();
     for (int index = 1; index <= columnCount; index++) {
       if (rsMetaData.getColumnType(index) == Types.LONGVARBINARY) {
-        // special treatment for MySQL:longblob -> SqlServer:varbinary
-        insertStatement.setBytes(index, rs.getBytes(index));
+        if (encConfigPos > -1) {
+          if (index == encConfigPos + 1) {
+            insertStatement.setObject(index, rs.getObject(index));
+            insertStatement.setObject(index + 1, ContentCopier.this.targetConfig.encKey);
+          } else {
+            insertStatement.setBytes(index > encConfigPos ? index + 1 : index, rs.getBytes(index));
+          }
+        } else {
+          // special treatment for MySQL:longblob -> SqlServer:varbinary
+          insertStatement.setBytes(index, rs.getBytes(index));
+        }
       } else {
-        insertStatement.setObject(index, rs.getObject(index));
+        if (encConfigPos > -1) {
+          if (index == encConfigPos + 1) {
+            insertStatement.setObject(index, rs.getObject(index));
+            insertStatement.setObject(index + 1, ContentCopier.this.targetConfig.encKey);
+          } else {
+            insertStatement.setObject(index > encConfigPos ? index + 1 : index, rs.getObject(index));
+          }
+        } else {
+          insertStatement.setObject(index, rs.getObject(index));
+        }
       }
     }
   }
 
-  private static String formatPlaceholders(int count) {
+  private static String formatPlaceholders(int count, int encConfigPos) {
     StringBuilder sb = new StringBuilder(count * 2 - 1);
-    sb.append("?");
-    IntStream.range(1, count).forEach(i -> sb.append(",?"));
+    IntStream.range(0, count).forEach(i -> {
+      if (i > 0) {
+        sb.append(",");
+      }
+      if (i == encConfigPos) {
+        sb.append("ENCRYPT(?, ?, 'aes')");
+      } else {
+        sb.append("?");
+      }
+    });
     return sb.toString();
   }
 

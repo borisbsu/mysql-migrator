@@ -53,6 +53,7 @@ public class MySQLMigrator {
   private static final String JDBC_URL_PROPERTY = "sonar.jdbc.url";
   private static final String JDBC_USERNAME_PROPERTY = "sonar.jdbc.username";
   private static final String JDBC_PASSWORD_PROPERTY = "sonar.jdbc.password";
+  private static final String CODESCAN_ENCKEY_PROPERTY = "codescan.encKey";
 
   static final Set<String> SUPPORTED_TARGET_DRIVER_NAMES = new LinkedHashSet<>(Arrays.asList("postgresql", "oracle", "sqlserver"));
 
@@ -64,7 +65,7 @@ public class MySQLMigrator {
       PreMigrationChecks preMigrationChecks = new PreMigrationChecks(new VersionValidator(), new TableListValidator(),
         new BlankTargetValidator(), new NonBlankSourceValidator(), new UniqueProjectKeeValidator());
       Migrator migrator = new Migrator(sys, sourceConfig, targetConfig, new TableListProvider(),
-        preMigrationChecks, new ContentCopier(), new StatsRecorder());
+        preMigrationChecks, new ContentCopier(sourceConfig, targetConfig), new StatsRecorder());
       migrator.execute();
     });
   }
@@ -136,7 +137,11 @@ public class MySQLMigrator {
     validateJdbcDriverClassName(url, label, supportedDrivers);
     String username = properties.getProperty(JDBC_USERNAME_PROPERTY);
     String password = properties.getProperty(JDBC_PASSWORD_PROPERTY);
-    return new ConnectionConfig(url, username, password);
+    String encKey = properties.getProperty(CODESCAN_ENCKEY_PROPERTY);
+    if (encKey == null || encKey.isEmpty()) {
+      throw new IllegalArgumentException("CodeScan encryption key is mandatory");
+    }
+    return new ConnectionConfig(url, username, password, encKey);
   }
 
   private static void validateJdbcDriverClassName(String url, String label, Set<String> supportedDriverNames) {

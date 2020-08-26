@@ -32,9 +32,17 @@ public class ConnectionConfig {
   @Nullable
   public final String password;
 
+  @Nullable
+  public final String encKey;
+
   public ConnectionConfig(String url, @Nullable String username, @Nullable String password) {
+    this(url, username, password, null);
+  }
+
+  public ConnectionConfig(String url, @Nullable String username, @Nullable String password, @Nullable String encKey) {
     this.url = url;
     this.username = username;
     this.password = password;
+    this.encKey = encKey;
   }
 }

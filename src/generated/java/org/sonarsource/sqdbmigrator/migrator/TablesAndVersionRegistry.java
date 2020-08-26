@@ -125,7 +125,9 @@ public class TablesAndVersionRegistry {
       "project_measures", "internal_properties", "projects", "manual_measures", "active_rules", "notifications", "user_roles", "active_rule_parameters", "users", "metrics",
       "issues", "issue_changes", "permission_templates", "perm_tpl_characteristics", "perm_templates_users", "perm_templates_groups", "qprofile_changes", "file_sources",
       "ce_queue", "ce_activity", "ce_task_characteristics", "ce_task_input", "ce_scanner_context", "ce_task_message", "user_tokens", "es_queue", "plugins", "project_branches",
-      "analysis_properties", "webhooks", "webhook_deliveries", "alm_app_installs", "project_alm_bindings", "project_mappings", "organization_alm_bindings", "user_properties"));
+      "analysis_properties", "webhooks", "webhook_deliveries", "alm_app_installs", "project_alm_bindings", "project_mappings", "organization_alm_bindings", "user_properties",
+      "organizations", "cs_newuser", "cs_project", "cs_queue", "cs_billing", "cs_user_settings"
+    ));
 
     // SonarQube 7.8
     TABLES_PER_VERSION.put(2708, Arrays.asList(
